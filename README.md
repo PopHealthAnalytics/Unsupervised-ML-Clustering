@@ -59,10 +59,7 @@ The scripts are intended to support interpretation rather than automatically ide
 
 ### Script: `01_preprocessing.py`
 
-This script explores and prepares the dataset before clustering.
-
-It:
-
+This script explores and prepares the dataset before clustering. Specifically it: 
 - Validates identifiers, age ranges, condition coding, and missingness.
 - Summarizes age, sex, condition prevalence, and disease burden.
 - Flags rare conditions, potentially extreme ages, and strongly correlated condition pairs.
