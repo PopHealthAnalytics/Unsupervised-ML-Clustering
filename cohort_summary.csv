@@ -1,0 +1,6 @@
+cohort,n,clustering_features_n,constant_features_removed
+full_cohort,8000,34,
+female_age18_44,1769,26,"heart_failure, atrial_fibrillation, stroke_history, peripheral_arterial_disease, cardiomyopathy, dementia, parkinsons_disease, sex_female"
+female_age45plus,2375,33,sex_female
+male_age18_44,1768,26,"heart_failure, atrial_fibrillation, stroke_history, systemic_lupus, osteoporosis, dementia, parkinsons_disease, sex_female"
+male_age45plus,2088,32,"systemic_lupus, sex_female"
