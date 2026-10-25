@@ -4,9 +4,6 @@ This repository provides an educational Python walkthrough of the clustering fra
 
 The example clusters individuals according to chronic conditions and demographics using **k-prototypes**, an algorithm designed for mixed numerical and categorical data.
 
-## Authors
-
-This repository was created and is currently maintained by Gemma Postill and Ingrid Giesinger. 
 
 ## The workflow
 
@@ -206,3 +203,6 @@ This repository operationalizes selected components of the paper’s discovery-o
 
 It does not implement every possible clustering method or validation approach. Numerical evaluation should be combined with subject-matter expertise, consideration of data-generating processes, and transparent reporting.
 
+## Authors
+
+This repository was created and is currently maintained by Gemma Postill (@gpostill) and Ingrid Giesinger. 
