@@ -47,10 +47,6 @@ Use the following script names when adding the walkthrough code to the repositor
 ```bash
 python 01_preprocessing.py
 python 02_cluster_evaluation.py
-
-# Review the evaluation outputs and specify your selected k
-# at the top of the visualization and sensitivity scripts.
-
 python 03_visualization.py
 python 04_subgroup_sensitivity.py
 ```
