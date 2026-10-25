@@ -184,7 +184,7 @@ These results include evaluation curves, selected cluster assignments, condition
 
 ## Relationship to the accompanying paper
 
-This repository operationalizes selected components of the paper’s discovery-oriented framework. It demonstrates how analytic decisions can be documented and assessed through exploration, evaluation, interpretation, and sensitivity analysis.
+This repository operationalizes selected components of the paper’s discovery-oriented framework. [LINK TO BE ADDED UPON PUBLICATION] It demonstrates how analytic decisions can be documented and assessed through exploration, evaluation, interpretation, and sensitivity analysis.
 
 It does not implement every possible clustering method or validation approach. Numerical evaluation should be combined with subject-matter expertise, consideration of data-generating processes, and transparent reporting.
 
