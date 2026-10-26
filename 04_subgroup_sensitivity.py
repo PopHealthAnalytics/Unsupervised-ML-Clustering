@@ -182,9 +182,9 @@ def load_overall():
 
     with open(OVERALL_EVALUATION_DIR / "analysis_configuration.json") as file:
         evaluation_config = json.load(file)
-
+        
+    #Check that teh value set for gamma is positive 
     gamma = float(evaluation_config["gamma"])
-
     if gamma <= 0:
         raise ValueError("Gamma must be positive.")
 
@@ -231,36 +231,13 @@ def create_profiles(profiles, labels, overall_mean, folder, cohort):
     # but clusters still require clinical assessment.
 
     for table, reference, filename in [
-        (
-            relative_subgroup,
-            "subgroup",
-            "heatmap_relative_to_subgroup_mean"
-        ),
-        (
-            relative_overall,
-            "overall cohort",
-            "heatmap_relative_to_overall_mean"
-        )
-    ]:
+        (relative_subgroup,  "subgroup",  "heatmap_relative_to_subgroup_mean"),
+        (relative_overall, "overall cohort", "heatmap_relative_to_overall_mean")]:
+        
         display = table.T.copy()
-
-        display.index = [
-            col.replace("_", " ").capitalize()
-            for col in display.index
-        ]
-
-        display.columns = [
-            f"Cluster {c}\n(n={sizes.loc[c]:,})"
-            for c in display.columns
-        ]
-
-        plot_heatmap(
-            display,
-            folder,
-            filename,
-            f"{cohort}: relative to {reference} mean",
-            relative=True
-        )
+        display.index = [col.replace("_", " ").capitalize() for col in display.index]
+        display.columns = [f"Cluster {c}\n(n={sizes.loc[c]:,})" for c in display.columns]
+        plot_heatmap(display, folder, filename, f"{cohort}: relative to {reference} mean", relative=True)
 
     return prevalence
 
@@ -271,20 +248,14 @@ def create_profiles(profiles, labels, overall_mean, folder, cohort):
 
 def create_projections(numerical, categorical, numerical_cols, categorical_cols, assignments, gamma, k, folder, cohort):
     # Weighted one-hot representation preserves the mixed distance:
-    #
     # d² = numerical squared differences
     #      + gamma * categorical mismatch count.
-    #
     # Full one-hot encoding gives squared distance 2 per mismatch;
     # multiplying by sqrt(gamma/2) restores the desired weighting.
     encoder = OneHotEncoder(sparse_output=False, handle_unknown="error")
     encoded = encoder.fit_transform(categorical)
 
-    x_full = np.column_stack([
-        numerical,
-        encoded * np.sqrt(gamma / 2)
-    ])
-
+    x_full = np.column_stack([numerical, encoded * np.sqrt(gamma / 2)])
     feature_names = (numerical_cols + encoder.get_feature_names_out(categorical_cols).tolist())
     rng = np.random.default_rng(SEED)
     sample_n = (len(assignments) if PROJECTION_SAMPLE_SIZE is None 
@@ -375,85 +346,109 @@ def create_projections(numerical, categorical, numerical_cols, categorical_cols,
 # FIT AND ANALYSE EACH COHORT
 # ================================================================
 
-def analyse_cohort(
-    cohort, k, gamma, overall_mean, overall_assignments
-):
+# Define a function that analyses one age–sex cohort.
+# cohort: subgroup name, such as "female_age18_44".
+# k: number of clusters to fit.
+# gamma: weighting of categorical mismatches relative to numerical differences.
+# overall_mean: overall condition prevalences, used for heatmaps later.
+# overall_assignments: original overall-cohort labels, used for comparison later.
+
+def analyse_cohort(cohort, k, gamma, overall_mean, overall_assignments):
+    
+    # Construct the export folder for this cohort and k.
+    # For example: sensitivity_outputs/age_sex_stratified/female_age18_44/k_05.
+    # The "/" operator joins paths; :02d formats k as a two-digit integer.
     folder = EXPORT_DIR / cohort / f"k_{k:02d}"
+    
+    # Create the folder and any missing parent folders.
+    # exist_ok=True allows the folder to exist already.
     folder.mkdir(parents=True, exist_ok=True)
 
+    # Locate the folder containing this cohort's preprocessed datasets.
     source = PREPROCESSING_DIR / cohort
 
-    features = read_data(
-        source / "features_age_minmax_binary01.csv"
-    )
+    # Read the clustering features: scaled age and 0/1 conditions.
+    # read_data() also checks that person_id is present, complete, and unique.
+    features = read_data(source / "features_age_minmax_binary01.csv")
+    # These values describe clusters; they are not all necessarily clustering inputs.
+    profiles = read_data(source / "preprocessed_complete.csv")
 
-    profiles = read_data(
-        source / "preprocessed_complete.csv"
-    )
-
+    # Compare the sets of IDs to confirm both files contain the same people.
+    # Sets ignore row order, which is addressed by align() below.
     if set(features["person_id"]) != set(profiles["person_id"]):
+        # Stop if the two files contain different individuals.
         raise ValueError(f"{cohort}: feature/profile IDs differ.")
 
+    # Reorder profile rows to match the order of people in features.
+    # to_numpy() converts the ID column into a NumPy array.
     profiles = align(profiles, features["person_id"].to_numpy())
-
+    
+    # List the profile variables that must be complete.
+    # *CONDITIONS expands the list of condition names into this list.
     required_profiles = ["age", "sex", *CONDITIONS]
 
+    # Check for any missing values among the required profile variables.
+    # isna() identifies missing cells; the two any() calls reduce the
+    # result across rows and columns to one True/False answer.
     if profiles[required_profiles].isna().any().any():
+        # Stop if any required profile value is missing.
         raise ValueError(f"{cohort}: missing profile values.")
 
+    # Confirm every condition value is either 0 or 1.
+    # isin() checks each cell; all().all() requires every cell to pass.
     if not profiles[CONDITIONS].isin([0, 1]).all().all():
         raise ValueError(f"{cohort}: conditions must be 0/1.")
 
+    # Infer the expected sex from the cohort name.
+    # This assumes the predefined "female_..." and "male_..." naming scheme.
     expected_sex = "Female" if cohort.startswith("female") else "Male"
 
-    age_valid = (
-        profiles["age"].between(18, 44)
-        if cohort.endswith("18_44")
-        else profiles["age"].between(45, 120)
-    )
+    # Determine the expected age range from the cohort name.
+    # between() includes both endpoints and returns one Boolean per person.
+    age_valid = (profiles["age"].between(18, 44) if cohort.endswith("18_44") else profiles["age"].between(45, 120))
 
+    # Check that every person has the expected sex and an eligible age.
+    # eq() tests equality; all() requires every person to meet the condition.
     if not profiles["sex"].eq(expected_sex).all() or not age_valid.all():
         raise ValueError(f"{cohort}: unexpected age/sex membership.")
 
     # Constant sex does not distinguish people within a subgroup.
     features = features.drop(columns="sex_female", errors="ignore")
 
+    # Include age as a candidate numerical feature if the column exists.
+    # Otherwise, create an empty numerical-feature list.
     candidate_num = ["age"] if "age" in features else []
+    
+    # Select condition columns present in the feature file.
+    # Conditions remain categorical even though their storage values are 0/1.
     candidate_cat = [c for c in CONDITIONS if c in features]
-
-    unknown = (
-        set(features.columns)
-        - {"person_id"}
-        - set(candidate_num + candidate_cat)
-    )
-
+    
+    # A non-empty set means unexpected columns were found.
+    unknown = (set(features.columns) - {"person_id"} - set(candidate_num + candidate_cat))
     if unknown:
         raise ValueError(f"Unexpected features: {sorted(unknown)}")
-
-    constants = [
-        c for c in candidate_num + candidate_cat
-        if features[c].nunique() <= 1
-    ]
-
-    numerical_cols = [c for c in candidate_num if c not in constants]
-    categorical_cols = [c for c in candidate_cat if c not in constants]
 
     # PAPER TIP:
     # Keep constant conditions in descriptive profiles but exclude
     # them from clustering. Review rare/correlated conditions rather
     # than automatically removing clinically meaningful variables.
 
+    constants = [c for c in candidate_num + candidate_cat if features[c].nunique() <= 1]
+    numerical_cols = [c for c in candidate_num if c not in constants]
+    categorical_cols = [c for c in candidate_cat if c not in constants]
+    
+    # Confirm that both numerical and categorical features remain.
+    # An empty list evaluates to False, so "not list" identifies an empty list.
     if not numerical_cols or not categorical_cols:
-        raise ValueError(
-            f"{cohort}: k-prototypes requires numerical "
-            "and categorical features."
-        )
+        raise ValueError(f"{cohort}: k-prototypes requires numerical and categorical features.")
 
+    # Define a consistent feature order: numerical first, categorical second.
+    # Later code uses this order to tell k-prototypes which columns are categorical.
     feature_order = numerical_cols + categorical_cols
-
     if features[feature_order].isna().any().any():
         raise ValueError("Missing clustering values.")
 
+    # Confirm that all selected categorical features contain only 0 and 1.
     if not features[categorical_cols].isin([0, 1]).all().all():
         raise ValueError("Categorical features must contain 0/1.")
     
@@ -461,45 +456,27 @@ def analyse_cohort(
     # Validate numerical features with floating-point tolerance.
     # ---------------------------------------------------------------
     
-    numerical_df = features[numerical_cols].apply(
-        pd.to_numeric,
-        errors="raise"
-    )
-    
+    numerical_df = features[numerical_cols].apply(pd.to_numeric, errors="raise")
     numerical = numerical_df.to_numpy(dtype=float)
     
     if not np.isfinite(numerical).all():
-        raise ValueError(
-            f"{cohort}: numerical features contain missing or "
-            "infinite values. Investigate the preprocessing exports."
-        )
-    
+        raise ValueError(f"{cohort}: numerical features contain missing or infinite values. Investigate the preprocessing exports.")
+    #Reformat (transpose and ensure string values )
     print(f"\n{cohort}: numerical feature ranges:")
-    print(
-        numerical_df.agg(["min", "max"])
-        .T
-        .to_string()
-    )
+    print(numerical_df.agg(["min", "max"]).T.to_string())
     
     # Allow tiny rounding differences from scaling and CSV export.
     tolerance = 1e-8
-    
-    outside_tolerance = (
-        (numerical < -tolerance)
-        | (numerical > 1.0 + tolerance)
-    )
-    
+    outside_tolerance = ((numerical < -tolerance) | (numerical > 1.0 + tolerance))
     if outside_tolerance.any():
         ranges = numerical_df.agg(["min", "max"]).T
-    
         raise ValueError(
             f"\n{cohort}: numerical features are outside the expected "
             f"min–max range beyond tolerance {tolerance}.\n\n"
             f"Observed ranges:\n{ranges.to_string()}\n\n"
             "Check that the script imports "
             "'features_age_minmax_binary01.csv', rather than the "
-            "unscaled or z-score export. If necessary, rerun preprocessing."
-        )
+            "unscaled or z-score export. If necessary, rerun preprocessing.")
     
     # Clip only negligible rounding differences.
     # Do not silently rescale substantially out-of-range values:
@@ -513,91 +490,45 @@ def analyse_cohort(
     
     categorical = features[categorical_cols].to_numpy(dtype=int)
 
-
-
     if not 2 <= k < len(features):
         raise ValueError("K must be >=2 and smaller than cohort size.")
 
-    mixed = np.empty(
-        (len(features), len(feature_order)), dtype=object
-    )
+    mixed = np.empty((len(features), len(feature_order)), dtype=object)
     mixed[:, :len(numerical_cols)] = numerical
     mixed[:, len(numerical_cols):] = categorical
 
     if len(pd.DataFrame(mixed).drop_duplicates()) < k:
         raise ValueError("Fewer unique profiles than requested clusters.")
 
-    model = KPrototypes(
-        n_clusters=k,
-        init="Huang",
-        n_init=N_INIT,
-        max_iter=MAX_ITER,
-        gamma=gamma,
-        random_state=SEED,
-        n_jobs=1,
-        verbose=0
-    )
-
-    labels = model.fit_predict(
-        mixed,
-        categorical=list(
-            range(len(numerical_cols), len(feature_order))
-        )
-    ).astype(int) + 1
+    #Re-fit model - note that the specification should match what was initially used for the main analysis (for example: same init methodology)
+    model = KPrototypes(n_clusters=k, init="Huang", n_init=N_INIT,  max_iter=MAX_ITER, gamma=gamma, random_state=SEED, n_jobs=1, verbose=0)
+    labels = model.fit_predict(mixed, categorical=list(range(len(numerical_cols), len(feature_order)))).astype(int) + 1
 
     if len(np.unique(labels)) != k:
         raise RuntimeError("Fewer occupied clusters than requested.")
 
     assignments = features[["person_id"]].copy()
     assignments["subgroup_cluster"] = labels
+    assignments.to_csv(folder / "cluster_assignments.csv", index=False)
 
-    assignments.to_csv(
-        folder / "cluster_assignments.csv", index=False
-    )
-
-    features[["person_id"] + feature_order].to_csv(
-        folder / "analysis_input.csv", index=False
-    )
-
+    features[["person_id"] + feature_order].to_csv(folder / "analysis_input.csv", index=False)
+    
     joblib.dump(model, folder / "kprototypes_model.joblib")
 
-    prototypes = pd.DataFrame(
-        model.cluster_centroids_,
-        columns=feature_order
-    )
+    prototypes = pd.DataFrame(model.cluster_centroids_, columns=feature_order)
     prototypes.insert(0, "subgroup_cluster", range(1, k + 1))
     prototypes.to_csv(folder / "prototypes.csv", index=False)
 
-    cluster_profiles = create_profiles(
-        profiles, labels, overall_mean, folder, cohort
-    )
-
-    projection_metadata = create_projections(
-        numerical, categorical,
-        numerical_cols, categorical_cols,
-        assignments, gamma, k, folder, cohort
-    )
+    cluster_profiles = create_profiles(profiles, labels, overall_mean, folder, cohort)
+    projection_metadata = create_projections(numerical, categorical, numerical_cols, categorical_cols, assignments, gamma, k, folder, cohort)
 
     # Compare partitions of the SAME individuals.
-    comparison = assignments.merge(
-        overall_assignments,
-        on="person_id",
-        how="left",
-        validate="one_to_one"
-    )
-
+    comparison = assignments.merge(overall_assignments, on="person_id", how="left", validate="one_to_one")
     if comparison["overall_cluster"].isna().any():
         raise ValueError("Some subgroup IDs lack overall assignments.")
 
-    ari = adjusted_rand_score(
-        comparison["overall_cluster"],
-        comparison["subgroup_cluster"]
-    )
-
-    ami = adjusted_mutual_info_score(
-        comparison["overall_cluster"],
-        comparison["subgroup_cluster"]
-    )
+    ari = adjusted_rand_score(comparison["overall_cluster"], comparison["subgroup_cluster"])
+    ami = adjusted_mutual_info_score(comparison["overall_cluster"], comparison["subgroup_cluster"])
 
     # Cluster numbering is arbitrary. ARI and AMI do not require
     # matching Cluster 1 to Cluster 1 across independent fits.
@@ -612,10 +543,7 @@ def analyse_cohort(
 
     counts.to_csv(folder / "overall_vs_subgroup_counts.csv")
 
-    row_percent = counts.div(
-        counts.sum(axis=1).replace(0, np.nan),
-        axis=0
-    ) * 100
+    row_percent = counts.div(counts.sum(axis=1).replace(0, np.nan), axis=0) * 100
 
     row_percent.to_csv(folder / "overall_vs_subgroup_row_percent.csv")
     comparison.to_csv(folder / "assignments_compared_with_overall.csv", index=False)
@@ -630,9 +558,7 @@ def analyse_cohort(
         "k": k,
         "cost": float(model.cost_),
         "minimum_cluster_n": int(sizes.min()),
-        "minimum_cluster_percent": float(
-            100 * sizes.min() / len(assignments)
-        ),
+        "minimum_cluster_percent": float(100 * sizes.min() / len(assignments)),
         "ARI_vs_overall": float(ari),
         "AMI_vs_overall": float(ami)
     }
